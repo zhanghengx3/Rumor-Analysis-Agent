@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+python-dotenv
+pydantic
+langchain
+langchain-openai
+langchain-tavily
+langchain-community
+langchain-huggingface
+sentence-transformers
+langchain-text-splitters
+faiss-cpu
+fastapi-cdn-host

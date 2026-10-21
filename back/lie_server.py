@@ -19,16 +19,16 @@ load_dotenv()
 
 # ===== 1. 大模型 =====
 model = ChatOpenAI(
-    model="qwen3-max",
-    base_url=os.getenv("DASHSCOPE_BASE_URL"),
-    api_key=os.getenv("DASHSCOPE_API_KEY"),
+    model="gpt-5.5",
+    base_url=os.getenv("LLM_BASE_URL"),
+    api_key=os.getenv("LLM_API_KEY"),
 )
 
 # ===== 2. Embedding：默认本地化部署(bge)，自动/手动切换云端兜底 =====
 # 优先级：本地模型目录存在 -> 本地离线加载；目录不存在且 EMBEDDING_MODE=local -> 镜像在线下载；
 #         若镜像也失败 -> 自动回退 DashScope 云端 embedding，保证服务一定能启动。
 # 依赖： uv add langchain-huggingface sentence-transformers
-BGE_LOCAL_DIR = os.getenv("BGE_LOCAL_DIR", r"D:\Langchain\test\models\bge-small-zh-v1.5")
+BGE_LOCAL_DIR = os.getenv("BGE_LOCAL_DIR", "./models/bge-small-zh-v1.5")
 EMBEDDING_MODE = os.getenv("EMBEDDING_MODE", "local").lower()
 
 
@@ -68,8 +68,8 @@ def _build_embeddings():
 embeddings, QUERY_INSTRUCTION, IS_BGE, EMBEDDING_MODE = _build_embeddings()
 
 # ===== 3. 本地知识库 =====
-KKB_PATH = os.getenv("KKB_PATH", r"D:\Langchain\test\Lie")
-INDEX_PATH = os.getenv("INDEX_PATH", r"D:\Langchain\test\faiss_index")
+KKB_PATH = os.getenv("KKB_PATH", "./knowledge_base")
+INDEX_PATH = os.getenv("INDEX_PATH", "./faiss_index")
 # 不同 embedding 的向量空间不通用，索引按实际生效的模式隔离，避免维度/语义错配
 INDEX_PATH = f"{INDEX_PATH}_{EMBEDDING_MODE}"
 
@@ -114,6 +114,38 @@ def web_search(query: str):
         urls_str = "\n".join(urls) if urls else "无有效来源网址"
         return f"【AI总结】{ai_summary}\n\n【真实来源网址】\n{urls_str}"
     return str(result)
+
+#置信度计算
+
+def calculate_confidence(local_hits: list, web_urls: list, verdict: str) -> float:
+    """
+    基于客观信号计算置信度 (0.0 ~ 1.0)
+    :param local_hits: 本地检索命中的带分数文档列表 [(Document, score), ...]
+    :param web_urls: 联网检索返回的URL列表
+    :param verdict: 最终结论 ("真实", "虚假", "存疑")
+    """
+    # 1. 基础分：本地检索最高相关度（最高权重 0.5）
+    local_score = 0.0
+    if local_hits:
+        # 归一化分数在 0~1 之间，直接取最高分
+        local_score = max([s for _, s in local_hits])
+
+    base_score = local_score * 0.5  # 本地证据最强，权重给 0.5
+
+    # 2. 联网验证分（权重 0.3）：只要有权威来源网址，就给基础分
+    web_score = 0.0
+    if web_urls and len(web_urls) > 0:
+        web_score = 0.3 * min(1.0, len(web_urls) / 3)  # 每多一个来源加分，上限 0.3
+
+    # 3. 冲突惩罚（动态扣分）
+    penalty = 0.0
+    if "存疑" in verdict:
+        penalty = 0.2  # 判定为存疑，置信度直接扣减
+    elif local_hits and not web_urls:
+        penalty = 0.1  # 只有本地证据没联网核查，稍微扣分防幻觉
+
+    final_confidence = min(1.0, max(0.1, base_score + web_score - penalty))
+    return round(final_confidence, 2)
 
 
 @tool
@@ -217,12 +249,28 @@ async def analyze_rumor(req: QueryRequest):
                     break
         if raw_data is None:
             raise HTTPException(status_code=500, detail="Agent 未返回结构化结果")
+            # ========== 用客观规则重写置信度 ==========
+            # 1. 重新执行一次本地检索，拿到精确的分数
+            search_query = QUERY_INSTRUCTION + req.question if IS_BGE else req.question
+            results = vectorstore.similarity_search_with_relevance_scores(search_query, k=4)
+            local_hits = [(d, s) for d, s in results if s >= LOCAL_SCORE_THRESHOLD]
+
+            # 2. 从 agent 的 messages 中提取联网的 URL
+            # 注：因为 Tavily 返回的数据在消息里，我们简单判断 agent 最终输出是否有参考
+            web_urls = raw_data.reference  # 直接从结构体里拿 AI 提取出来的 URL
+
+            # 3. 计算并覆盖 confidence
+            calc_conf = calculate_confidence(local_hits, web_urls, raw_data.verdict)
+            raw_data.confidence = calc_conf
+            # ========== 结束 ==========
         result = raw_data.model_dump() if isinstance(raw_data, PydanticBaseModel) else raw_data
         return QueryResponse(**result)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
 
 
 @app.get("/health")

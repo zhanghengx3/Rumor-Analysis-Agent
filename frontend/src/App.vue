@@ -1,12 +1,31 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 const question = ref('')
 const result = ref(null)
 const isLoading = ref(false)
 const errorMessage = ref('')
 
-// 点击按钮触发接口调用
+const confidencePercent = computed(() => {
+  const c = result.value?.confidence
+  if (c == null || Number.isNaN(c)) return 0
+  return Math.min(100, Math.max(0, Math.round(c * 100)))
+})
+
+const confidenceLevel = computed(() => {
+  const c = result.value?.confidence ?? 0
+  if (c >= 0.8) return '高置信度'
+  if (c >= 0.5) return '中等置信度'
+  return '低置信度'
+})
+
+const confidenceColor = computed(() => {
+  const c = result.value?.confidence ?? 0
+  if (c >= 0.8) return '#16a34a'
+  if (c >= 0.5) return '#f59e0b'
+  return '#dc2626'
+})
+
 async function handleSubmit() {
   if (!question.value.trim()) return
   isLoading.value = true
@@ -68,9 +87,22 @@ async function handleSubmit() {
           <span class="label">判断结果：</span>
           <span :class="['verdict-badge', result.verdict]">{{ result.verdict }}</span>
         </div>
-        <div class="verdict-item">
+        <div class="verdict-item confidence-item">
           <span class="label">置信度：</span>
-          <span class="value">{{ (result.confidence * 100).toFixed(1) }}%</span>
+          <div class="confidence-display">
+            <div class="confidence-bar-bg">
+              <div
+                class="confidence-bar"
+                :style="{
+                  width: confidencePercent + '%',
+                  backgroundColor: confidenceColor
+                }"
+              ></div>
+            </div>
+            <span class="confidence-text">
+              {{ confidencePercent }}%（{{ confidenceLevel }}）
+            </span>
+          </div>
         </div>
       </div>
 
@@ -96,7 +128,6 @@ async function handleSubmit() {
         <span class="label">引用来源：</span>
         <ul>
           <li v-for="(item, index) in result.reference" :key="index">
-            <!-- 修隐患：url 为空时不渲染空链接，只显示来源说明 -->
             <a v-if="item.url" :href="item.url" target="_blank">{{ item.source }} ({{ item.url }})</a>
             <span v-else>{{ item.source }}（本地知识库）</span>
           </li>
@@ -129,6 +160,36 @@ ul { margin-top: 8px; padding-left: 20px; color: #555; }
 .verdict-badge.存疑 { color: #ff9800; }
 
 .basis-block { margin-bottom: 20px; }
+
+/* 置信度展示 */
+.confidence-item {
+  flex: 1;
+}
+
+.confidence-display {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.confidence-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.confidence-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s, background-color 0.3s;
+}
+
+.confidence-text {
+  font-size: 13px;
+  color: #6b7280;
+}
 
 /* 补强3：多源冲突分析区块（橙色高亮） */
 .conflict-block { background: #fff7e6; border-left: 4px solid #ff9800; border-radius: 6px; padding: 14px 16px; margin-bottom: 20px; }
