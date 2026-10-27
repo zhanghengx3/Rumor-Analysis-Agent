@@ -4,7 +4,7 @@
 
 ## 效果预览
 
-![前端效果展示](screenshots/demo.png)
+![前端效果展示](screenshots/谣言智能体前端.png)
 
 ## 功能特性
 

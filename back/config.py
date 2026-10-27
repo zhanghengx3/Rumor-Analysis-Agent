@@ -8,12 +8,12 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL")
 LLM_API_KEY = os.getenv("LLM_API_KEY")
 
 # ===== Embedding 配置 =====
-BGE_LOCAL_DIR = os.getenv("BGE_LOCAL_DIR", r"D:\Langchain\test\models\bge-small-zh-v1.5")
+BGE_LOCAL_DIR = os.getenv("BGE_LOCAL_DIR", os.path.join(os.path.dirname(__file__), "models", "bge-small-zh-v1.5"))
 EMBEDDING_MODE = os.getenv("EMBEDDING_MODE", "local").lower()
 
 # ===== 知识库配置 =====
 KKB_PATH = os.getenv("KKB_PATH", os.path.join(os.path.dirname(__file__), "knowledge_base"))
-INDEX_PATH_BASE = os.getenv("INDEX_PATH", r"D:\Langchain\test\faiss_index")
+INDEX_PATH_BASE = os.getenv("INDEX_PATH", os.path.join(os.path.dirname(__file__), "faiss_index"))
 INDEX_PATH = f"{INDEX_PATH_BASE}_{EMBEDDING_MODE}"
 
 # ===== 记忆配置 =====
